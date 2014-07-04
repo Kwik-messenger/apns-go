@@ -18,17 +18,17 @@ var (
 // when head == tail then queue is empty
 // when (tail + 1) % len(buf) == head then queue is full
 type messageFlightQueue struct {
-	buf        []*message
+	buf        []*Message
 	head, tail int
 
-	lastm *message
+	lastm *Message
 }
 
 func newMessageFlightQueue(size int) *messageFlightQueue {
-	return &messageFlightQueue{make([]*message, size), 0, 0, nil}
+	return &messageFlightQueue{make([]*Message, size), 0, 0, nil}
 }
 
-func (mq *messageFlightQueue) Push(m *message) {
+func (mq *messageFlightQueue) Push(m *Message) {
 	newTail := (mq.tail + 1) % len(mq.buf)
 	if newTail == mq.head {
 		// buffer filled up, grow
@@ -39,7 +39,7 @@ func (mq *messageFlightQueue) Push(m *message) {
 	mq.tail = newTail
 }
 
-func (mq *messageFlightQueue) Pop() (m *message, ok bool) {
+func (mq *messageFlightQueue) Pop() (m *Message, ok bool) {
 	if mq.head == mq.tail {
 		// queue is empty
 		return nil, false
@@ -70,18 +70,29 @@ func (mq *messageFlightQueue) Unpop() error {
 	}
 }
 
-func (mq *messageFlightQueue) grow() {
-	newBuf := make([]*message, int(float32(len(mq.buf))*(1+MESSAGE_FLIGHT_QUEUE_ENLARGE)))
+func (mq *messageFlightQueue) Len() int {
+	return (mq.tail - mq.head + len(mq.buf)) % len(mq.buf)
+}
 
-	if mq.tail > mq.head {
+func (mq *messageFlightQueue) Cap() int {
+	return cap(mq.buf)
+}
+
+func (mq *messageFlightQueue) grow() {
+	newBuf := make([]*Message, int(float32(len(mq.buf))*(1+MESSAGE_FLIGHT_QUEUE_ENLARGE)))
+
+	if mq.tail >= mq.head {
 		// buf is not wrapped
 		copy(newBuf, mq.buf[mq.head:mq.tail])
 
-		mq.tail -= mq.head
+		mq.tail = mq.tail - mq.head
 		mq.head = 0
 	} else {
 		// buf have wrapped
 		n := copy(newBuf, mq.buf[mq.head:])
 		copy(newBuf[n:], mq.buf[:mq.tail])
+		mq.tail = len(mq.buf) + mq.tail - mq.head
+		mq.head = 0
 	}
+	mq.buf = newBuf
 }
