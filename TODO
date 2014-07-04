@@ -1,0 +1,4 @@
+* Re-resolve gateway name from time to time
+* Exclude hosts that on maintenance (error code 10)
+* Talk to feedback service
+* Logger
