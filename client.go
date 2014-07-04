@@ -9,31 +9,34 @@ import (
 )
 
 const (
-	WORKERS_PER_HOST = 1
-	CLIENT_QUEUE_LENGTH = 32
+	WORKERS_PER_HOST     = 1
+	CLIENT_QUEUE_LENGTH  = 32
 	RESPAWN_QUEUE_LENGTH = 4
-	APNS_DEFAULT_PORT = 2195
+	APNS_DEFAULT_PORT    = 2195
 )
 
 var (
-	ErrNoIP = errors.New("no ip addresses for hostname found")
+	ErrNoIP            = errors.New("no ip addresses for hostname found")
 	ErrNoAliveGateways = errors.New("no alive gateways")
 
 	ErrInvalidPriority = errors.New("invalid priority")
 )
 
+type BadMessageCallback func(m *Message, code uint8)
+
 type Client struct {
 	GatewayName string
 	certificate tls.Certificate
+	callback    BadMessageCallback
 
 	gateAddresses []net.IP
 	gatePort      int
 
-	msgQueue chan *message
+	msgQueue    chan *Message
 	deadWorkers chan deadWorker
 }
 
-func CreateClient(gw string, cert, certKey []byte) (*Client, error) {
+func CreateClient(gw string, cert, certKey []byte, callback BadMessageCallback) (*Client, error) {
 	tlsCert, err := tls.X509KeyPair(cert, certKey)
 	if err != nil {
 		return nil, err
@@ -61,9 +64,9 @@ func CreateClient(gw string, cert, certKey []byte) (*Client, error) {
 		return nil, ErrNoIP
 	}
 
-	messages := make(chan *message, CLIENT_QUEUE_LENGTH)
+	messages := make(chan *Message, CLIENT_QUEUE_LENGTH)
 	deadWorkers := make(chan deadWorker, RESPAWN_QUEUE_LENGTH)
-	return &Client{gw, tlsCert, addrs, port, messages, deadWorkers}, nil
+	return &Client{hostname, tlsCert, callback, addrs, port, messages, deadWorkers}, nil
 }
 
 // management api
@@ -78,6 +81,7 @@ createWorkers:
 		for i := 0; i < WORKERS_PER_HOST; i++ {
 			conn, err := c.connect(c.GatewayName, ip, c.gatePort, c.certificate)
 			if err != nil {
+				println("client: failed to connect to", ip.String(), ":", err.Error())
 				continue createWorkers
 			}
 
@@ -127,8 +131,8 @@ func (c *Client) Send(to string, expiry int32, priority uint8,
 		return ErrInvalidPriority
 	}
 
-	message := newMessage(token, expiry, priority, data)
-	return c.send(message)
+	Message := newMessage(token, expiry, priority, data)
+	return c.send(Message)
 }
 
 // internal methods
@@ -162,17 +166,35 @@ func (c *Client) connect(name string, ip net.IP, port int, cert tls.Certificate)
 	return tlsConn, nil
 }
 
-func (c *Client) send(m *message) error {
+func (c *Client) send(m *Message) error {
 	c.msgQueue <- m
 	return nil
 }
 
 func (c *Client) respawnWorkers() {
-
+	for {
+		select {
+		case dw := <-c.deadWorkers:
+			if mderr, ok := dw.err.(messageDeliveryError); ok {
+				if mderr.code > 0 && mderr.code < 9 {
+					// malformed message, pop it and send it back to caller
+					go c.callback(mderr.message, mderr.code)
+				}
+			}
+			// respawn worker
+			// TODO: manage ips
+			var ip = dw.ip
+			conn, err := c.connect(c.GatewayName, ip, c.gatePort, c.certificate)
+			if err != nil {
+				// TODO: handle reconnect errors
+			}
+			go dw.w.Run(conn, ip)
+		}
+	}
 }
 
 type deadWorker struct {
-	w *worker
+	w   *worker
 	err error
-	ip net.IP
+	ip  net.IP
 }

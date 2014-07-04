@@ -47,6 +47,7 @@ func unpackToken(token string) ([]byte, error) {
 }
 
 type writerFunc func([]byte) (int, error)
+
 func (w writerFunc) Write(data []byte) (int, error) {
 	return w(data)
 }

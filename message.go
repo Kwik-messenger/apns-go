@@ -40,7 +40,7 @@ var APNSErrors = map[uint8]string{
 	255: "Unknown",
 }
 
-type message struct {
+type Message struct {
 	Token     []byte
 	MessageID uint32
 	Expiry    int32
@@ -50,11 +50,11 @@ type message struct {
 	sentAt time.Time
 }
 
-func newMessage(token []byte, expiry int32, priority uint8, p []byte) *message {
-	return &message{token, 0, expiry, priority, p, time.Time{}}
+func newMessage(token []byte, expiry int32, priority uint8, p []byte) *Message {
+	return &Message{token, 0, expiry, priority, p, time.Time{}}
 }
 
-func (m *message) WriteTo(to io.Writer) (n int64, err error) {
+func (m *Message) WriteTo(to io.Writer) (n int64, err error) {
 	// this helper will count written bytes and record in 'n'
 	counter := writerFunc(func(data []byte) (int, error) {
 		nn, err := to.Write(data)
