@@ -36,7 +36,7 @@ type Client struct {
 	deadWorkers chan deadWorker
 }
 
-func CreateClient(gw string, cert, certKey []byte, callback BadMessageCallback) (*Client, error) {
+func CreateClient(gw string, cert, certKey []byte) (*Client, error) {
 	tlsCert, err := tls.X509KeyPair(cert, certKey)
 	if err != nil {
 		return nil, err
@@ -66,10 +66,15 @@ func CreateClient(gw string, cert, certKey []byte, callback BadMessageCallback) 
 
 	messages := make(chan *Message, CLIENT_QUEUE_LENGTH)
 	deadWorkers := make(chan deadWorker, RESPAWN_QUEUE_LENGTH)
-	return &Client{hostname, tlsCert, callback, addrs, port, messages, deadWorkers}, nil
+	return &Client{hostname, tlsCert, nil, addrs, port, messages, deadWorkers}, nil
 }
 
 // management api
+
+// SetCallback sets callback for handling erroneous messages
+func (c *Client) SetCallback(cb BadMessageCallback) {
+	c.callback = cb
+}
 
 // Start client, return error if connection to APNS does not succeed
 func (c *Client) Start() error {
@@ -178,7 +183,9 @@ func (c *Client) respawnWorkers() {
 			if mderr, ok := dw.err.(messageDeliveryError); ok {
 				if mderr.code > 0 && mderr.code < 9 {
 					// malformed message, pop it and send it back to caller
-					go c.callback(mderr.message, mderr.code)
+					if c.callback != nil {
+						go c.callback(mderr.message, mderr.code)
+					}
 				}
 			}
 			// respawn worker

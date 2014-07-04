@@ -74,10 +74,6 @@ func (mq *messageFlightQueue) Len() int {
 	return (mq.tail - mq.head + len(mq.buf)) % len(mq.buf)
 }
 
-func (mq *messageFlightQueue) Cap() int {
-	return cap(mq.buf)
-}
-
 func (mq *messageFlightQueue) grow() {
 	newBuf := make([]*Message, int(float32(len(mq.buf))*(1+MESSAGE_FLIGHT_QUEUE_ENLARGE)))
 
