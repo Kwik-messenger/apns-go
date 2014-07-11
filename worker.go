@@ -33,7 +33,7 @@ func newWorker(inbox chan *Message, toRespawn chan deadWorker) *worker {
 		buf: &bytes.Buffer{}, toRespawn: toRespawn}
 }
 
-func (w *worker) Run(c net.Conn, ip net.IP) {
+func (w *worker) Run(c net.Conn) {
 	defer c.Close()
 
 	var readErrors = make(chan error, 1)
@@ -49,7 +49,7 @@ func (w *worker) Run(c net.Conn, ip net.IP) {
 		m, _ := w.inflight.Pop()
 		err := w.send(m, c)
 		if err != nil {
-			w.die(err, ip)
+			w.die(err)
 		}
 	}
 
@@ -59,7 +59,7 @@ func (w *worker) Run(c net.Conn, ip net.IP) {
 			// got new message to send
 			err := w.send(msg, c)
 			if err != nil {
-				w.die(err, ip)
+				w.die(err)
 			}
 			println("worker: sent:", msg.MessageID, string(msg.Payload))
 		case now := <-ticker.C:
@@ -89,7 +89,7 @@ func (w *worker) Run(c net.Conn, ip net.IP) {
 					}
 				}
 			}
-			w.die(err, ip)
+			w.die(err)
 		}
 	}
 }
@@ -121,6 +121,11 @@ func (w *worker) send(msg *Message, c net.Conn) error {
 	return nil
 }
 
+// Next returns next 'infligh' message, stored in worker queue
+func (w *worker) Next() (*Message, bool) {
+	return w.inflight.Pop()
+}
+
 func (w *worker) runErrorReader(conn net.Conn, errors chan error) {
 	var buf = make([]byte, 2)
 
@@ -148,9 +153,9 @@ func (w *worker) runErrorReader(conn net.Conn, errors chan error) {
 	errors <- messageDeliveryError{errorCode, messageId, nil}
 }
 
-func (w *worker) die(err error, ip net.IP) {
+func (w *worker) die(err error) {
 	println("worker: dead:", err.Error())
-	w.toRespawn <- deadWorker{w, err, ip}
+	w.toRespawn <- deadWorker{w, err}
 }
 
 type messageDeliveryError struct {

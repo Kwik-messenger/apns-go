@@ -6,13 +6,15 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
-	WORKERS_PER_HOST     = 1
-	CLIENT_QUEUE_LENGTH  = 32
-	RESPAWN_QUEUE_LENGTH = 4
-	APNS_DEFAULT_PORT    = 2195
+	WORKER_RETRIES           = 3
+	WORKER_RESSURECT_TIMEOUT = 15 * time.Second
+	CLIENT_QUEUE_LENGTH      = 32
+	RESPAWN_QUEUE_LENGTH     = 4
+	APNS_DEFAULT_PORT        = 2195
 )
 
 var (
@@ -29,8 +31,7 @@ type Client struct {
 	certificate tls.Certificate
 	callback    BadMessageCallback
 
-	gateAddresses []net.IP
-	gatePort      int
+	gatePort int
 
 	msgQueue    chan *Message
 	deadWorkers chan deadWorker
@@ -55,18 +56,9 @@ func CreateClient(gw string, cert, certKey []byte) (*Client, error) {
 		}
 	}
 
-	addrs, err := net.LookupIP(hostname)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(addrs) == 0 {
-		return nil, ErrNoIP
-	}
-
 	messages := make(chan *Message, CLIENT_QUEUE_LENGTH)
 	deadWorkers := make(chan deadWorker, RESPAWN_QUEUE_LENGTH)
-	return &Client{hostname, tlsCert, nil, addrs, port, messages, deadWorkers}, nil
+	return &Client{hostname, tlsCert, nil, port, messages, deadWorkers}, nil
 }
 
 // management api
@@ -77,31 +69,27 @@ func (c *Client) SetCallback(cb BadMessageCallback) {
 }
 
 // Start client, return error if connection to APNS does not succeed
-func (c *Client) Start() error {
+func (c *Client) Start(workerCount int) error {
 	// for every gateway addr spawn appropriate number of workers
-	var aliveAddrs []net.IP
 
-createWorkers:
-	for _, ip := range c.gateAddresses {
-		for i := 0; i < WORKERS_PER_HOST; i++ {
-			conn, err := c.connect(c.GatewayName, ip, c.gatePort, c.certificate)
-			if err != nil {
-				println("client: failed to connect to", ip.String(), ":", err.Error())
-				continue createWorkers
+	for i := 0; i < workerCount; i++ {
+		var conn net.Conn
+		var err error
+
+		for j := 0; j < WORKER_RETRIES; j++ {
+			conn, err = c.connect(c.GatewayName, c.gatePort, c.certificate)
+			if err == nil {
+				break
 			}
-
-			worker := newWorker(c.msgQueue, c.deadWorkers)
-			go worker.Run(conn, ip)
 		}
 
-		aliveAddrs = append(aliveAddrs, ip)
-	}
+		if err != nil {
+			return err
+		}
 
-	if len(aliveAddrs) == 0 {
-		return ErrNoAliveGateways
+		worker := newWorker(c.msgQueue, c.deadWorkers)
+		go worker.Run(conn)
 	}
-
-	c.gateAddresses = aliveAddrs
 
 	// start worker respawner
 	go c.respawnWorkers()
@@ -142,11 +130,16 @@ func (c *Client) Send(to string, expiry int32, priority uint8,
 
 // internal methods
 
-func (c *Client) connect(name string, ip net.IP, port int, cert tls.Certificate) (*tls.Conn,
+func (c *Client) connect(name string, port int, cert tls.Certificate) (*tls.Conn,
 	error) {
 
 	// dial to host
-	tcpaddr := &net.TCPAddr{IP: ip, Port: port}
+	ipaddr, err := net.ResolveIPAddr("ip4", name)
+	if err != nil {
+		return nil, err
+	}
+
+	tcpaddr := &net.TCPAddr{IP: ipaddr.IP, Port: port}
 	conn, err := net.DialTCP("tcp4", nil, tcpaddr)
 	if err != nil {
 		return nil, err
@@ -189,13 +182,31 @@ func (c *Client) respawnWorkers() {
 				}
 			}
 			// respawn worker
-			// TODO: manage ips
-			var ip = dw.ip
-			conn, err := c.connect(c.GatewayName, ip, c.gatePort, c.certificate)
-			if err != nil {
-				// TODO: handle reconnect errors
+			var conn net.Conn
+			var err error
+			for i := 0; i < WORKER_RETRIES; i++ {
+				conn, err = c.connect(c.GatewayName, c.gatePort, c.certificate)
+				if err == nil {
+					break
+				}
 			}
-			go dw.w.Run(conn, ip)
+
+			if err != nil {
+				// reconnection failed. Resend worker messages
+				for m, ok := dw.w.Next(); ok; m, ok = dw.w.Next() {
+					c.send(m)
+				}
+
+				// wait for some time and reconnect
+				go func(w deadWorker) {
+					w.err = nil
+					time.Sleep(WORKER_RESSURECT_TIMEOUT)
+					c.deadWorkers <- w
+				}(dw)
+				continue
+			}
+
+			go dw.w.Run(conn)
 		}
 	}
 }
@@ -203,5 +214,4 @@ func (c *Client) respawnWorkers() {
 type deadWorker struct {
 	w   *worker
 	err error
-	ip  net.IP
 }
