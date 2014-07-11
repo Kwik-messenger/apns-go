@@ -23,6 +23,8 @@ type worker struct {
 	inbox     chan *Message
 	toRespawn chan deadWorker
 
+	stopChan chan struct{}
+
 	counter  uint32
 	inflight *messageFlightQueue
 	buf      *bytes.Buffer
@@ -30,7 +32,7 @@ type worker struct {
 
 func newWorker(inbox chan *Message, toRespawn chan deadWorker) *worker {
 	return &worker{inbox: inbox, inflight: newMessageFlightQueue(WORKER_INFLIGHT_QUEUE_SIZE),
-		buf: &bytes.Buffer{}, toRespawn: toRespawn}
+		buf: &bytes.Buffer{}, toRespawn: toRespawn, stopChan: make(chan struct{})}
 }
 
 func (w *worker) Run(c net.Conn) {
@@ -55,7 +57,13 @@ func (w *worker) Run(c net.Conn) {
 
 	for {
 		select {
-		case msg := <-w.inbox:
+		case msg, ok := <-w.inbox:
+			if !ok {
+				// message queue is empty and closed. So, nullify it (to prevent further reads)
+				w.inbox = nil
+				continue
+			}
+
 			// got new message to send
 			err := w.send(msg, c)
 			if err != nil {
@@ -63,7 +71,9 @@ func (w *worker) Run(c net.Conn) {
 			}
 			println("worker: sent:", msg.MessageID, string(msg.Payload))
 		case now := <-ticker.C:
-			for m, ok := w.inflight.Pop(); ok; m, ok = w.inflight.Pop() {
+			var m *Message
+			var ok bool
+			for m, ok = w.inflight.Pop(); ok; m, ok = w.inflight.Pop() {
 				// forget about messages that was sent WORKER_ASSUME_SENT_TIMEOUT ago
 				// break when found new enough message
 				if now.Sub(m.sentAt) < WORKER_ASSUME_SENT_TIMEOUT {
@@ -71,6 +81,13 @@ func (w *worker) Run(c net.Conn) {
 					break
 				}
 				println("worker: assuming delivered:", string(m.Payload))
+			}
+
+			if !ok && w.inbox == nil {
+				// there no messages left in flight queue and inbox was closed, so
+				// there no work to do, finish and report to registry
+				println("worker: finished")
+				w.die(nil)
 			}
 
 		case err := <-readErrors:
@@ -90,6 +107,10 @@ func (w *worker) Run(c net.Conn) {
 				}
 			}
 			w.die(err)
+
+		case <-w.stopChan:
+			println("worker: stopped")
+			return
 		}
 	}
 }
@@ -121,9 +142,15 @@ func (w *worker) send(msg *Message, c net.Conn) error {
 	return nil
 }
 
-// Next returns next 'infligh' message, stored in worker queue
-func (w *worker) Next() (*Message, bool) {
+// PopMessage returns next 'infligh' message, stored in worker queue
+func (w *worker) PopMessage() (*Message, bool) {
 	return w.inflight.Pop()
+}
+
+// Stop stops the worker. Connection will be closed, but not delivered messages would remain in 
+// internal buffer. Stop will not send worker into deadWorkers queue.
+func (w *worker) ForceStop() {
+	w.stopChan <-struct{}{}
 }
 
 func (w *worker) runErrorReader(conn net.Conn, errors chan error) {

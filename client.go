@@ -34,6 +34,7 @@ type Client struct {
 	gatePort int
 
 	msgQueue    chan *Message
+	workers     []*worker
 	deadWorkers chan deadWorker
 }
 
@@ -58,7 +59,7 @@ func CreateClient(gw string, cert, certKey []byte) (*Client, error) {
 
 	messages := make(chan *Message, CLIENT_QUEUE_LENGTH)
 	deadWorkers := make(chan deadWorker, RESPAWN_QUEUE_LENGTH)
-	return &Client{hostname, tlsCert, nil, port, messages, deadWorkers}, nil
+	return &Client{hostname, tlsCert, nil, port, messages, nil, deadWorkers}, nil
 }
 
 // management api
@@ -70,7 +71,10 @@ func (c *Client) SetCallback(cb BadMessageCallback) {
 
 // Start client, return error if connection to APNS does not succeed
 func (c *Client) Start(workerCount int) error {
-	// for every gateway addr spawn appropriate number of workers
+
+	if workerCount <= 0 {
+		return errors.New("apns: worker count must be greater than zero")
+	}
 
 	for i := 0; i < workerCount; i++ {
 		var conn net.Conn
@@ -84,10 +88,16 @@ func (c *Client) Start(workerCount int) error {
 		}
 
 		if err != nil {
+			// stop previous workers
+			for _, w := range c.workers {
+				w.ForceStop()
+			}
+			c.workers = nil
 			return err
 		}
 
 		worker := newWorker(c.msgQueue, c.deadWorkers)
+		c.workers = append(c.workers, worker)
 		go worker.Run(conn)
 	}
 
@@ -98,8 +108,12 @@ func (c *Client) Start(workerCount int) error {
 	return nil
 }
 
-// Stop client workers gracefully
+// Stop client gracefully. Users should not send messages after invoking Stop; those calls will 
+// result in panic. Pending messages will be sent to APNS as usual (callbacks will be invoked for
+// malformed messages). Stop call will return when all pending messages assumed delivered or 
+// appropriate callbacks are invoked
 func (c *Client) Stop() error {
+	close(c.msgQueue)
 	return nil
 }
 
@@ -170,7 +184,14 @@ func (c *Client) send(m *Message) error {
 }
 
 func (c *Client) respawnWorkers() {
+	var finishedWorkers int
 	for {
+
+		if finishedWorkers == len(c.workers) {
+			// all workers finished, nothing to do
+			return
+		}
+
 		select {
 		case dw := <-c.deadWorkers:
 			if mderr, ok := dw.err.(messageDeliveryError); ok {
@@ -181,6 +202,13 @@ func (c *Client) respawnWorkers() {
 					}
 				}
 			}
+
+			if dw.err == nil {
+				// worker just finished it work. Do not respawn it
+				finishedWorkers++
+				continue
+			}
+
 			// respawn worker
 			var conn net.Conn
 			var err error
@@ -193,19 +221,20 @@ func (c *Client) respawnWorkers() {
 
 			if err != nil {
 				// reconnection failed. Resend worker messages
-				for m, ok := dw.w.Next(); ok; m, ok = dw.w.Next() {
+				for m, ok := dw.w.PopMessage(); ok; m, ok = dw.w.PopMessage() {
 					c.send(m)
 				}
 
 				// wait for some time and reconnect
-				go func(w deadWorker) {
-					w.err = nil
+				go func(w deadWorker, err error) {
+					w.err = err
 					time.Sleep(WORKER_RESSURECT_TIMEOUT)
 					c.deadWorkers <- w
-				}(dw)
+				}(dw, err)
 				continue
 			}
 
+			// reconnection succeed, run worker on new connection
 			go dw.w.Run(conn)
 		}
 	}
