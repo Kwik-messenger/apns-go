@@ -36,6 +36,7 @@ type Client struct {
 	msgQueue    chan *Message
 	workers     []*worker
 	deadWorkers chan deadWorker
+	stopped     chan struct{}
 }
 
 func CreateClient(gw string, cert, certKey []byte) (*Client, error) {
@@ -59,7 +60,8 @@ func CreateClient(gw string, cert, certKey []byte) (*Client, error) {
 
 	messages := make(chan *Message, CLIENT_QUEUE_LENGTH)
 	deadWorkers := make(chan deadWorker, RESPAWN_QUEUE_LENGTH)
-	return &Client{hostname, tlsCert, nil, port, messages, nil, deadWorkers}, nil
+	stopped := make(chan struct{})
+	return &Client{hostname, tlsCert, nil, port, messages, nil, deadWorkers, stopped}, nil
 }
 
 // management api
@@ -114,6 +116,7 @@ func (c *Client) Start(workerCount int) error {
 // appropriate callbacks are invoked
 func (c *Client) Stop() error {
 	close(c.msgQueue)
+	<-c.stopped
 	return nil
 }
 
@@ -189,6 +192,7 @@ func (c *Client) respawnWorkers() {
 
 		if finishedWorkers == len(c.workers) {
 			// all workers finished, nothing to do
+			close(c.stopped)
 			return
 		}
 

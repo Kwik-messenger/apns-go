@@ -181,7 +181,9 @@ func (w *worker) runErrorReader(conn net.Conn, errors chan error) {
 }
 
 func (w *worker) die(err error) {
-	println("worker: dead:", err.Error())
+	if err != nil {
+		println("worker: dead:", err.Error())
+	}
 	w.toRespawn <- deadWorker{w, err}
 }
 
