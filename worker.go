@@ -13,10 +13,12 @@ const (
 	WORKER_INFLIGHT_QUEUE_SIZE = 128
 	WORKER_QUEUE_UPDATE_FREQ   = time.Millisecond * 500
 	WORKER_ASSUME_SENT_TIMEOUT = time.Second * 5
+	WORKER_IDLE_TIMEOUT        = time.Minute * 5
 )
 
 var (
 	ErrInvalidAppleResponse = errors.New("invalid apple response")
+	ErrIdlingTimeout        = errors.New("idling timeout")
 )
 
 type worker struct {
@@ -43,6 +45,10 @@ func (w *worker) Run(c net.Conn) {
 
 	ticker := time.NewTicker(WORKER_QUEUE_UPDATE_FREQ)
 	defer ticker.Stop()
+	idleTicker := time.NewTicker(WORKER_IDLE_TIMEOUT)
+	defer idleTicker.Stop()
+
+	var lastSentMessagesCount int
 
 	// resend notifications, if any
 
@@ -52,6 +58,7 @@ func (w *worker) Run(c net.Conn) {
 		err := w.send(m, c)
 		if err != nil {
 			w.die(err)
+			return
 		}
 	}
 
@@ -68,8 +75,10 @@ func (w *worker) Run(c net.Conn) {
 			err := w.send(msg, c)
 			if err != nil {
 				w.die(err)
+				return
 			}
 			println("worker: sent:", msg.MessageID, string(msg.Payload))
+			lastSentMessagesCount++
 		case now := <-ticker.C:
 			var m *Message
 			var ok bool
@@ -88,6 +97,7 @@ func (w *worker) Run(c net.Conn) {
 				// there no work to do, finish and report to registry
 				println("worker: finished")
 				w.die(nil)
+				return
 			}
 
 		case err := <-readErrors:
@@ -107,7 +117,17 @@ func (w *worker) Run(c net.Conn) {
 				}
 			}
 			w.die(err)
+			return
 
+		case <-idleTicker.C:
+			if lastSentMessagesCount == 0 {
+				// no messages was sent in that period, kill worker to reconnect
+				println("worker: idling timeout, killing")
+				w.die(ErrIdlingTimeout)
+				return
+			} else {
+				lastSentMessagesCount = 0
+			}
 		case <-w.stopChan:
 			println("worker: stopped")
 			return
