@@ -29,6 +29,7 @@ type BadMessageCallback func(m *Message, code uint8)
 type Client struct {
 	GatewayName string
 	certificate tls.Certificate
+	anyServerCert bool
 	callback    BadMessageCallback
 
 	gatePort int
@@ -39,7 +40,7 @@ type Client struct {
 	stopped     chan struct{}
 }
 
-func CreateClient(gw string, cert, certKey []byte) (*Client, error) {
+func CreateClient(gw string, cert, certKey []byte, anyServerCert bool) (*Client, error) {
 	tlsCert, err := tls.X509KeyPair(cert, certKey)
 	if err != nil {
 		return nil, err
@@ -61,7 +62,8 @@ func CreateClient(gw string, cert, certKey []byte) (*Client, error) {
 	messages := make(chan *Message, CLIENT_QUEUE_LENGTH)
 	deadWorkers := make(chan deadWorker, RESPAWN_QUEUE_LENGTH)
 	stopped := make(chan struct{})
-	return &Client{hostname, tlsCert, nil, port, messages, nil, deadWorkers, stopped}, nil
+	return &Client{hostname, tlsCert, anyServerCert, nil, port, messages, nil, deadWorkers,
+		stopped}, nil
 }
 
 // management api
@@ -83,7 +85,7 @@ func (c *Client) Start(workerCount int) error {
 		var err error
 
 		for j := 0; j < WORKER_RETRIES; j++ {
-			conn, err = c.connect(c.GatewayName, c.gatePort, c.certificate)
+			conn, err = c.connect(c.GatewayName, c.gatePort, c.certificate, c.anyServerCert)
 			if err == nil {
 				break
 			}
@@ -147,7 +149,7 @@ func (c *Client) Send(to string, expiry int32, priority uint8,
 
 // internal methods
 
-func (c *Client) connect(name string, port int, cert tls.Certificate) (*tls.Conn,
+func (c *Client) connect(name string, port int, cert tls.Certificate, anyCert bool) (*tls.Conn,
 	error) {
 
 	// dial to host
@@ -170,7 +172,8 @@ func (c *Client) connect(name string, port int, cert tls.Certificate) (*tls.Conn
 	}()
 
 	// initiate tls connection
-	tlsConf := &tls.Config{ServerName: name, Certificates: []tls.Certificate{cert}}
+	tlsConf := &tls.Config{ServerName: name, Certificates: []tls.Certificate{cert},
+		InsecureSkipVerify: anyCert}
 	tlsConn := tls.Client(conn, tlsConf)
 
 	err = tlsConn.Handshake()
@@ -217,7 +220,7 @@ func (c *Client) respawnWorkers() {
 			var conn net.Conn
 			var err error
 			for i := 0; i < WORKER_RETRIES; i++ {
-				conn, err = c.connect(c.GatewayName, c.gatePort, c.certificate)
+				conn, err = c.connect(c.GatewayName, c.gatePort, c.certificate, c.anyServerCert)
 				if err == nil {
 					break
 				}
