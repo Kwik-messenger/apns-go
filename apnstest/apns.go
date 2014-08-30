@@ -7,7 +7,11 @@ import (
 	"net"
 )
 
-var stubAPNSSocket net.Listener
+const (
+	APNS_BIND_ADDRESS = "127.0.0.1:2195"
+)
+
+var stubAPNSListener net.Listener
 
 func justReadAPNSConn(conn io.ReadWriteCloser) {
 	io.Copy(ioutil.Discard, conn)
@@ -22,13 +26,13 @@ func RunStubAPNSGate(certpath, keypath string) {
 
 	cfg := &tls.Config{Certificates: []tls.Certificate{cert}}
 
-	stubAPNSSocket, err = tls.Listen("tcp4", "127.0.0.1:2195", cfg)
+	stubAPNSListener, err = tls.Listen("tcp4", APNS_BIND_ADDRESS, cfg)
 	if err != nil {
 		panic(err)
 	}
 
 	for {
-		conn, err := stubAPNSSocket.Accept()
+		conn, err := stubAPNSListener.Accept()
 		if err != nil {
 			return
 		}
@@ -38,6 +42,6 @@ func RunStubAPNSGate(certpath, keypath string) {
 }
 
 func StopStubAPNSGate() {
-	stubAPNSSocket.Close()
-	stubAPNSSocket = nil
+	stubAPNSListener.Close()
+	stubAPNSListener = nil
 }

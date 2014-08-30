@@ -1,6 +1,7 @@
 package apns
 
 import (
+	"bufio"
 	"crypto/tls"
 	"encoding/binary"
 	"encoding/hex"
@@ -67,9 +68,8 @@ func (fc *FeedbackClient) serve() {
 		case <-fc.ticker.C:
 			// connect and recieve tokens from gate
 			tokens, err := fc.recvTokens()
-			log.Println("apns-feedback:", tokens, err)
 			if err != nil {
-				// TODO: log errors
+				log.Println("apns-feedback: failed to read all tokens:", err)
 				continue
 			}
 			if len(tokens) > 0 {
@@ -110,7 +110,7 @@ func (fc *FeedbackClient) recvTokens() ([]BadToken, error) {
 	return fc.readTokens(tlsConn)
 }
 
-func (fc *FeedbackClient) readTokens(conn net.Conn) ([]BadToken, error) {
+func (fc *FeedbackClient) readTokens(conn io.Reader) ([]BadToken, error) {
 	var buf = make([]byte, 34)
 	var timestamp uint32
 
@@ -118,9 +118,11 @@ func (fc *FeedbackClient) readTokens(conn net.Conn) ([]BadToken, error) {
 
 	var err error
 
+	reader := bufio.NewReader(conn)
+
 	for {
 		// read timestamp
-		err = binary.Read(conn, binary.BigEndian, &timestamp)
+		err = binary.Read(reader, binary.BigEndian, &timestamp)
 		if err != nil {
 			if err == io.EOF {
 				return tokens, nil
@@ -129,9 +131,11 @@ func (fc *FeedbackClient) readTokens(conn net.Conn) ([]BadToken, error) {
 		}
 
 		// read token (including length buf which always 32)
-		_, err = conn.Read(buf)
+		n, err := reader.Read(buf)
 		if err != nil {
-			return nil, err
+			if ! (n == 34 && err == io.EOF) {
+				return nil, err
+			}
 		}
 
 		// make bad token record
