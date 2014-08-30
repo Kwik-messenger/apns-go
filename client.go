@@ -15,6 +15,7 @@ const (
 	CLIENT_QUEUE_LENGTH      = 32
 	RESPAWN_QUEUE_LENGTH     = 4
 	APNS_DEFAULT_PORT        = 2195
+	FEEDBACK_DEFAULT_PORT    = 2196
 )
 
 var (
@@ -71,6 +72,23 @@ func CreateClient(gw string, cert, certKey []byte, anyServerCert bool) (*Client,
 // SetCallback sets callback for handling erroneous messages
 func (c *Client) SetCallback(cb BadMessageCallback) {
 	c.callback = cb
+}
+
+func (c *Client) SetupFeedback(gw string, poll time.Duration) (*FeedbackClient, error) {
+	parts := strings.Split(gw, ":")
+	hostname := parts[0]
+	var port int
+	var err error
+	if len(parts) == 1 {
+		port = FEEDBACK_DEFAULT_PORT
+	} else {
+		port, err = strconv.Atoi(parts[1])
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return NewFeedbackClient(c.certificate, hostname, port, poll, c.anyServerCert), nil
 }
 
 // Start client, return error if connection to APNS does not succeed
