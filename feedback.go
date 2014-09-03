@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
-	"log"
 	"net"
 	"strings"
 	"time"
@@ -25,7 +24,7 @@ type FeedbackClient struct {
 
 	ticker *time.Ticker
 
-	tokens chan []BadToken
+	tokens chan badTokensReply
 	stop chan struct{}
 }
 
@@ -34,10 +33,15 @@ type BadToken struct {
 	Timestamp time.Time
 }
 
+type badTokensReply struct {
+	tokens []BadToken
+	err error
+}
+
 func NewFeedbackClient(cert tls.Certificate, hostname string, port int, poll time.Duration,
 	anyCert bool) *FeedbackClient {
 	return &FeedbackClient{cert, hostname, port, anyCert, time.NewTicker(poll),
-		make(chan []BadToken), make(chan struct{})}
+		make(chan badTokensReply), make(chan struct{})}
 }
 
 func (fc *FeedbackClient) Start() error {
@@ -56,11 +60,11 @@ func (fc *FeedbackClient) Stop() {
 }
 
 func (fc *FeedbackClient) GetBadTokens() ([]BadToken, error) {
-	tokens, ok := <-fc.tokens
+	reply, ok := <-fc.tokens
 	if !ok {
 		return nil, ErrFeedbackClientStopped
 	}
-	return tokens, nil
+	return reply.tokens, reply.err
 }
 
 func (fc *FeedbackClient) serve() {
@@ -70,11 +74,9 @@ func (fc *FeedbackClient) serve() {
 			// connect and recieve tokens from gate
 			tokens, err := fc.recvTokens()
 			if err != nil {
-				log.Println("apns-feedback: failed to read all tokens:", err)
-				continue
-			}
-			if len(tokens) > 0 {
-				fc.tokens <- tokens
+				fc.tokens <- badTokensReply{nil, err}
+			} else if len(tokens) > 0 {
+				fc.tokens <- badTokensReply{tokens, nil}
 			}
 
 		case <-fc.stop:

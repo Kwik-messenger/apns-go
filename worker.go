@@ -77,7 +77,6 @@ func (w *worker) Run(c net.Conn) {
 				w.die(err)
 				return
 			}
-			println("worker: sent:", msg.MessageID, string(msg.Payload))
 			lastSentMessagesCount++
 		case now := <-ticker.C:
 			var m *Message
@@ -89,13 +88,11 @@ func (w *worker) Run(c net.Conn) {
 					w.inflight.Unpop()
 					break
 				}
-				println("worker: assuming delivered:", string(m.Payload))
 			}
 
 			if !ok && w.inbox == nil {
 				// there no messages left in flight queue and inbox was closed, so
 				// there no work to do, finish and report to registry
-				println("worker: finished")
 				w.die(nil)
 				return
 			}
@@ -122,14 +119,12 @@ func (w *worker) Run(c net.Conn) {
 		case <-idleTicker.C:
 			if lastSentMessagesCount == 0 {
 				// no messages was sent in that period, kill worker to reconnect
-				println("worker: idling timeout, killing")
 				w.die(ErrIdlingTimeout)
 				return
 			} else {
 				lastSentMessagesCount = 0
 			}
 		case <-w.stopChan:
-			println("worker: stopped")
 			return
 		}
 	}
@@ -201,9 +196,6 @@ func (w *worker) runErrorReader(conn net.Conn, errors chan error) {
 }
 
 func (w *worker) die(err error) {
-	if err != nil {
-		println("worker: dead:", err.Error())
-	}
 	w.toRespawn <- deadWorker{w, err}
 }
 
