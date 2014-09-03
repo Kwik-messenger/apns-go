@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 )
 
-
 // payload is a handy alias for keeping payload.
 type payload map[string]interface{}
 

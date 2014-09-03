@@ -10,19 +10,18 @@ import (
 
 const (
 	// Timeout for messages to be 'assumed delivered' to APNS. After message being written into
-	// APNS connection, worker will put it into inflight queue. If no errors was recieved from APNS 
-	// during that amount of time, message assumed delivered to APNS. 
+	// APNS connection, worker will put it into inflight queue. If no errors was recieved from APNS
+	// during that amount of time, message assumed delivered to APNS.
 	WORKER_ASSUME_SENT_TIMEOUT = time.Second * 5
 	// Initial buffer size for inflight messages.
 	WORKER_INFLIGHT_QUEUE_SIZE = 128
 	// Period to check inflight queue.
-	WORKER_QUEUE_UPDATE_FREQ   = time.Millisecond * 500
+	WORKER_QUEUE_UPDATE_FREQ = time.Millisecond * 500
 
-	// Long-living connections to APNS tend to stale and stop working but server does not close 
+	// Long-living connections to APNS tend to stale and stop working but server does not close
 	// them. Thus worker will die after that time of inactivity.
-	WORKER_IDLE_TIMEOUT        = time.Minute * 5
+	WORKER_IDLE_TIMEOUT = time.Minute * 5
 )
-
 
 // worker holds worker state.
 type worker struct {
@@ -44,7 +43,7 @@ func newWorker(inbox chan *Message, toRespawn chan deadWorker) *worker {
 
 // Run runs worker main loop. It will consume messages from delivery queue and write them into
 // APNS connection simultaneously polling connection for APNS error reply. If there were any errors
-// APNS will tell the number of last delivered message, worker then skips up to last not delivered 
+// APNS will tell the number of last delivered message, worker then skips up to last not delivered
 // message and request client for reconnect. Then it deliver any pending messages in queue.
 func (w *worker) Run(c net.Conn) {
 	defer c.Close()
@@ -172,10 +171,10 @@ func (w *worker) PopMessage() (*Message, bool) {
 	return w.inflight.Pop()
 }
 
-// Stop stops the worker. Connection will be closed, but not delivered messages would remain in 
+// Stop stops the worker. Connection will be closed, but not delivered messages would remain in
 // internal buffer. Stop will not send worker into deadWorkers queue.
 func (w *worker) ForceStop() {
-	w.stopChan <-struct{}{}
+	w.stopChan <- struct{}{}
 }
 
 // runErrorReader polls for error response from APNS.

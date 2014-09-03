@@ -11,19 +11,18 @@ import (
 	"time"
 )
 
-
 // FeedbackClient is a client for APNS Feedback service. It provides API to retrieve
 // device tokens that are no longer valid.
 type FeedbackClient struct {
-	cert tls.Certificate
+	cert     tls.Certificate
 	hostname string
-	port int
-	anyCert bool
+	port     int
+	anyCert  bool
 
 	ticker *time.Ticker
 
 	tokens chan badTokensReply
-	stop chan struct{}
+	stop   chan struct{}
 }
 
 // BadToken represents entry recieved from feedback service. It contains token and expiration date.
@@ -37,7 +36,7 @@ type BadToken struct {
 // badTokensReply is an internal struct for passing feedback service results through channel.
 type badTokensReply struct {
 	tokens []BadToken
-	err error
+	err    error
 }
 
 // newFeedbackClient creates feedback client with given certificate, address and poll interval.
@@ -151,7 +150,7 @@ func (fc *FeedbackClient) readTokens(conn io.Reader) ([]BadToken, error) {
 		// read token (including length buf which always 32)
 		n, err := reader.Read(buf)
 		if err != nil {
-			if ! (n == 34 && err == io.EOF) {
+			if !(n == 34 && err == io.EOF) {
 				return nil, err
 			}
 		}

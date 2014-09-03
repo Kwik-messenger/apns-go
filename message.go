@@ -10,7 +10,7 @@ const (
 	// Tell APNS to deliver message without delay.
 	PRIORITY_IMMEDIATE = 10
 	// Tell APNS to deliver message in background.
-	PRIORITY_DELAYED   = 5
+	PRIORITY_DELAYED = 5
 )
 
 // There are constants for APNS protocol frames.
