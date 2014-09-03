@@ -3,24 +3,28 @@ package apns
 import (
 	"bytes"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"net"
 	"time"
 )
 
 const (
-	WORKER_INFLIGHT_QUEUE_SIZE = 128
-	WORKER_QUEUE_UPDATE_FREQ   = time.Millisecond * 500
+	// Timeout for messages to be 'assumed delivered' to APNS. After message being written into
+	// APNS connection worker will put it into inflight queue. If no errors was recieved from APNS 
+	// during that amount of time, message assumed delivered to APNS. 
 	WORKER_ASSUME_SENT_TIMEOUT = time.Second * 5
+	// Initial buffer size for inflight messages
+	WORKER_INFLIGHT_QUEUE_SIZE = 128
+	// Check inflight queue that often
+	WORKER_QUEUE_UPDATE_FREQ   = time.Millisecond * 500
+
+	// Long-living connections to APNS tend to stale and stop working but server does not close 
+	// them. Thus worker will die after that time of inactivity.
 	WORKER_IDLE_TIMEOUT        = time.Minute * 5
 )
 
-var (
-	ErrInvalidAppleResponse = errors.New("invalid apple response")
-	ErrIdlingTimeout        = errors.New("idling timeout")
-)
 
+// worker holds worker state.
 type worker struct {
 	inbox     chan *Message
 	toRespawn chan deadWorker
@@ -32,11 +36,16 @@ type worker struct {
 	buf      *bytes.Buffer
 }
 
+// newWorker creates worker
 func newWorker(inbox chan *Message, toRespawn chan deadWorker) *worker {
 	return &worker{inbox: inbox, inflight: newMessageFlightQueue(WORKER_INFLIGHT_QUEUE_SIZE),
 		buf: &bytes.Buffer{}, toRespawn: toRespawn, stopChan: make(chan struct{})}
 }
 
+// Run runs worker main loop. It will consume messages from delivery queue and write them into
+// APNS connection simultaneously polling connection for APNS error reply. If there were any errors
+// APNS will tell the number of last delivered message, worker then skips up to last not delivered 
+// message and request client for reconnect. Then it deliver any pending messages in queue.
 func (w *worker) Run(c net.Conn) {
 	defer c.Close()
 
@@ -85,7 +94,7 @@ func (w *worker) Run(c net.Conn) {
 				// forget about messages that was sent WORKER_ASSUME_SENT_TIMEOUT ago
 				// break when found new enough message
 				if now.Sub(m.sentAt) < WORKER_ASSUME_SENT_TIMEOUT {
-					w.inflight.Unpop()
+					w.inflight.Pushback()
 					break
 				}
 			}
@@ -130,6 +139,7 @@ func (w *worker) Run(c net.Conn) {
 	}
 }
 
+// send writes message into connection
 func (w *worker) send(msg *Message, c net.Conn) error {
 	defer w.buf.Reset()
 	// give it an ID and add to FlightQueue
@@ -168,6 +178,7 @@ func (w *worker) ForceStop() {
 	w.stopChan <-struct{}{}
 }
 
+// runErrorReader polls for error response from APNS
 func (w *worker) runErrorReader(conn net.Conn, errors chan error) {
 	var buf = make([]byte, 2)
 
@@ -195,16 +206,19 @@ func (w *worker) runErrorReader(conn net.Conn, errors chan error) {
 	errors <- messageDeliveryError{errorCode, messageId, nil}
 }
 
+// die sends worker with error to client
 func (w *worker) die(err error) {
 	w.toRespawn <- deadWorker{w, err}
 }
 
+// messageDeliveryError is a custom error type for handling delivery errors
 type messageDeliveryError struct {
 	code      uint8
 	messageId uint32
 	message   *Message
 }
 
+// Error implements error interface
 func (m messageDeliveryError) Error() string {
 	return fmt.Sprintf("failed to deliver messages after %d: %s", m.messageId, APNSErrors[m.code])
 }

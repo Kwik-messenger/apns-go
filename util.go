@@ -3,15 +3,10 @@ package apns
 import (
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 )
 
-var (
-	ErrNoAPS              = errors.New("no 'aps' section in payload")
-	ErrPayloadIsTooLarge  = errors.New("payload exceed 256 bytes length")
-	ErrInvalidTokenLength = errors.New("invalid token length")
-)
 
+// payload is a handy alias for keeping payload
 type payload map[string]interface{}
 
 // marshalPayload checks payload and marshals it into json
@@ -33,6 +28,7 @@ func marshalPayload(p payload) ([]byte, error) {
 	return data, nil
 }
 
+// unpackToken decodes token into byte slice.
 func unpackToken(token string) ([]byte, error) {
 	data, err := hex.DecodeString(token)
 	if err != nil {
@@ -46,8 +42,10 @@ func unpackToken(token string) ([]byte, error) {
 	return data, nil
 }
 
+// writerFunc is a wrapper, creates io.Writer from function
 type writerFunc func([]byte) (int, error)
 
+// Write is a proxy method for writerFunc
 func (w writerFunc) Write(data []byte) (int, error) {
 	return w(data)
 }

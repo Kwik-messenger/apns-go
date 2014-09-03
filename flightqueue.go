@@ -1,22 +1,15 @@
 package apns
 
-import (
-	"errors"
-)
-
 const (
+	// Multiplier for message flight queue
 	MESSAGE_FLIGHT_QUEUE_ENLARGE = 0.33
 )
 
-var (
-	ErrMessageAlreadyUnpopped = errors.New("message already unpopped")
-)
-
-// messageFlightQueue basically a ring buffer that can grow
-// head is an index of next element to read
-// tail is an index of next element to write
-// when head == tail then queue is empty
-// when (tail + 1) % len(buf) == head then queue is full
+// messageFlightQueue basically a ring buffer that can grow.
+// head is an index of next element to read;
+// tail is an index of next element to write;
+// when head == tail then queue is empty;
+// when (tail + 1) % len(buf) == head then queue is full.
 type messageFlightQueue struct {
 	buf        []*Message
 	head, tail int
@@ -24,10 +17,12 @@ type messageFlightQueue struct {
 	lastm *Message
 }
 
+// newMessageQueue initializes queue
 func newMessageFlightQueue(size int) *messageFlightQueue {
 	return &messageFlightQueue{make([]*Message, size), 0, 0, nil}
 }
 
+// Push pushes message into tail of queue
 func (mq *messageFlightQueue) Push(m *Message) {
 	newTail := (mq.tail + 1) % len(mq.buf)
 	if newTail == mq.head {
@@ -39,6 +34,7 @@ func (mq *messageFlightQueue) Push(m *Message) {
 	mq.tail = newTail
 }
 
+// Pop pops from head of queue. 'ok' will be false when queue is empty
 func (mq *messageFlightQueue) Pop() (m *Message, ok bool) {
 	if mq.head == mq.tail {
 		// queue is empty
@@ -51,8 +47,8 @@ func (mq *messageFlightQueue) Pop() (m *Message, ok bool) {
 	return m, true
 }
 
-// Unpop reverses Pop. Only one last message can be unpopped
-func (mq *messageFlightQueue) Unpop() error {
+// Pushback reverses Pop. Only one last message can be unpopped
+func (mq *messageFlightQueue) Pushback() error {
 	if mq.lastm != nil {
 		newHead := (mq.head - 1 + len(mq.buf)) % len(mq.buf)
 		if newHead == mq.tail {
@@ -66,14 +62,16 @@ func (mq *messageFlightQueue) Unpop() error {
 		mq.lastm = nil
 		return nil
 	} else {
-		return ErrMessageAlreadyUnpopped
+		return errMessageAlreadyPushedBack
 	}
 }
 
+// Len returns current count of messages in buffer
 func (mq *messageFlightQueue) Len() int {
 	return (mq.tail - mq.head + len(mq.buf)) % len(mq.buf)
 }
 
+// grow grows internal buffer.
 func (mq *messageFlightQueue) grow() {
 	newBuf := make([]*Message, int(float32(len(mq.buf))*(1+MESSAGE_FLIGHT_QUEUE_ENLARGE)))
 

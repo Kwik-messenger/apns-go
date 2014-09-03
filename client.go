@@ -2,7 +2,6 @@ package apns
 
 import (
 	"crypto/tls"
-	"errors"
 	"net"
 	"strconv"
 	"strings"
@@ -10,25 +9,28 @@ import (
 )
 
 const (
+	// How many times try to connect to APNS (prevents denial on dns failures)
 	WORKER_RETRIES           = 3
+	// When worker fails to reconnect, wait this amount of time to try to reconnect again 
 	WORKER_RESSURECT_TIMEOUT = 15 * time.Second
+	// Message queue length
 	CLIENT_QUEUE_LENGTH      = 32
+	// Worker respawn queue length
 	RESPAWN_QUEUE_LENGTH     = 4
+	// Default port for APNS
 	APNS_DEFAULT_PORT        = 2195
+	// Default port for feedback service
 	FEEDBACK_DEFAULT_PORT    = 2196
 )
 
-var (
-	ErrNoIP            = errors.New("no ip addresses for hostname found")
-	ErrNoAliveGateways = errors.New("no alive gateways")
 
-	ErrInvalidPriority = errors.New("invalid priority")
-)
-
+// BadMessageCallback defines function type to call back on messages APNS fails to deliver.
 type BadMessageCallback func(m *Message, code uint8)
 
+// Client is an APNS client. It provides API to send messages, manages message queue,
+// orchestrates workers. It also used to instantiate feedback service client. 
 type Client struct {
-	GatewayName string
+	gatewayName string
 	certificate tls.Certificate
 	anyServerCert bool
 	callback    BadMessageCallback
@@ -41,6 +43,13 @@ type Client struct {
 	stopped     chan struct{}
 }
 
+// CreateClient creates Client, loads tls certificate. If parameter 'anyServerCert' is set to true,
+// client will be able to connect to APNS gateway with invalid certificate. Can be used for
+// purposes.
+//
+// After client have been created it should be started using Start() to actually send messages.
+// But even not started it still can be used - all messages will be queued and then sent. It can
+// be handy because workers on startup can take some time to connect to APNS
 func CreateClient(gw string, cert, certKey []byte, anyServerCert bool) (*Client, error) {
 	tlsCert, err := tls.X509KeyPair(cert, certKey)
 	if err != nil {
@@ -69,11 +78,15 @@ func CreateClient(gw string, cert, certKey []byte, anyServerCert bool) (*Client,
 
 // management api
 
-// SetCallback sets callback for handling erroneous messages
+// SetCallback sets callback for handling erroneous messages. Every call executed in it own
+// goroutine. 
 func (c *Client) SetCallback(cb BadMessageCallback) {
 	c.callback = cb
 }
 
+// SetupFeedback setups feedback client from APNS client config. Feedback client will inherit 
+// a certificate and 'anyServerCert' option. After feedback client have been created it need to 
+// be started to actually do something.
 func (c *Client) SetupFeedback(gw string, poll time.Duration) (*FeedbackClient, error) {
 	parts := strings.Split(gw, ":")
 	hostname := parts[0]
@@ -88,14 +101,14 @@ func (c *Client) SetupFeedback(gw string, poll time.Duration) (*FeedbackClient, 
 		}
 	}
 
-	return NewFeedbackClient(c.certificate, hostname, port, poll, c.anyServerCert), nil
+	return newFeedbackClient(c.certificate, hostname, port, poll, c.anyServerCert), nil
 }
 
-// Start client, return error if connection to APNS does not succeed
+// Start starts client, return error if connection to APNS does not succeed
 func (c *Client) Start(workerCount int) error {
 
 	if workerCount <= 0 {
-		return errors.New("apns: worker count must be greater than zero")
+		return ErrInvalidWorkerCount
 	}
 
 	for i := 0; i < workerCount; i++ {
@@ -103,7 +116,7 @@ func (c *Client) Start(workerCount int) error {
 		var err error
 
 		for j := 0; j < WORKER_RETRIES; j++ {
-			conn, err = c.connect(c.GatewayName, c.gatePort, c.certificate, c.anyServerCert)
+			conn, err = c.connect(c.gatewayName, c.gatePort, c.certificate, c.anyServerCert)
 			if err == nil {
 				break
 			}
@@ -126,14 +139,13 @@ func (c *Client) Start(workerCount int) error {
 	// start worker respawner
 	go c.respawnWorkers()
 
-	// TODO: communicate with apple feedback service
 	return nil
 }
 
-// Stop client gracefully. Users should not send messages after invoking Stop; those calls will 
-// result in panic. Pending messages will be sent to APNS as usual (callbacks will be invoked for
-// malformed messages). Stop call will return when all pending messages assumed delivered or 
-// appropriate callbacks are invoked
+// Stop stops client gracefully. Users should not send messages after invoking Stop; those calls 
+// will result in panic. Pending messages will be sent to APNS as usual (callbacks will be invoked 
+// for malformed messages). Stop call will return when all pending messages assumed delivered or 
+// appropriate callbacks are invoked.
 func (c *Client) Stop() error {
 	close(c.msgQueue)
 	<-c.stopped
@@ -142,7 +154,25 @@ func (c *Client) Stop() error {
 
 // client api
 
-// Send adds messate to queue and then sends it. Return error if message is not valid
+// Send enqueues message to delivery. 'to' is a hex-encoded device token, 'expiry' - expiration
+// time of message in unix-time, 'priority' - either PRIORITY_IMMEDIATE for immediate notification
+// delivery or PRIORITY_DELAYED for background delivery (it is an APNS property. It does not affect
+// clients' shedule for message), 'payload' - message payload.
+//
+// Send will make a message and put it into delivery queue. Thus, Send will return an error only in
+// case of malformed input - invalid token, expiry, priority or payload. Send() to invalid but 
+// well-formed token will succeed but later, when actual delivery fails, BadMessageCallback will
+// be invoked.
+//
+// Client's delivery queue is limited and Send() will block if queue is full. This can happen when
+// workers are overloaded or not yet started.
+//
+// Send can accept messages before client have been started. Messages will be queued and sent after
+// client startup.
+//
+// Send does not guarantee ordering of messages sent. Also keep in mind that APNS itself does not
+// guarantee message delivery. However, every sent message either will be 'assumed delivered' to
+// APNS or callback will be called.
 func (c *Client) Send(to string, expiry int32, priority uint8,
 	payload map[string]interface{}) error {
 
@@ -167,6 +197,7 @@ func (c *Client) Send(to string, expiry int32, priority uint8,
 
 // internal methods
 
+// connect makes connection to APNS. 
 func (c *Client) connect(name string, port int, cert tls.Certificate, anyCert bool) (*tls.Conn,
 	error) {
 
@@ -202,11 +233,13 @@ func (c *Client) connect(name string, port int, cert tls.Certificate, anyCert bo
 	return tlsConn, nil
 }
 
+// send enqueues message
 func (c *Client) send(m *Message) error {
 	c.msgQueue <- m
 	return nil
 }
 
+// respawnWorker waits for dead worker then reconnects to APNS and restarts worker
 func (c *Client) respawnWorkers() {
 	var finishedWorkers int
 	for {
@@ -238,7 +271,7 @@ func (c *Client) respawnWorkers() {
 			var conn net.Conn
 			var err error
 			for i := 0; i < WORKER_RETRIES; i++ {
-				conn, err = c.connect(c.GatewayName, c.gatePort, c.certificate, c.anyServerCert)
+				conn, err = c.connect(c.gatewayName, c.gatePort, c.certificate, c.anyServerCert)
 				if err == nil {
 					break
 				}
@@ -265,6 +298,7 @@ func (c *Client) respawnWorkers() {
 	}
 }
 
+// deadWorker is a struct to hold worker and error worker die with
 type deadWorker struct {
 	w   *worker
 	err error
