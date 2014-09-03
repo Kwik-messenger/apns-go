@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"strings"
 	"time"
 )
 
@@ -96,8 +97,13 @@ func (fc *FeedbackClient) recvTokens() ([]BadToken, error) {
 		return nil, err
 	}
 
+	// FIXME: apple uses same certificate for push gw (hostname gateway.push.apple.com) and
+	// feedback service (hostname feedback.push.apple.com)
+	// thus, tls hostname check failing there
+	// workaround: change hostname for tls
+	tlsHostname := strings.Replace(fc.hostname, "feedback", "gateway", 1)
 	// initiate tls connection
-	tlsConf := &tls.Config{ServerName: fc.hostname, Certificates: []tls.Certificate{fc.cert},
+	tlsConf := &tls.Config{ServerName: tlsHostname, Certificates: []tls.Certificate{fc.cert},
 		InsecureSkipVerify: fc.anyCert}
 	tlsConn := tls.Client(conn, tlsConf)
 	defer tlsConn.Close()
