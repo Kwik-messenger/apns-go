@@ -8,7 +8,7 @@ import (
 	"errors"
 	"net"
 
-	"github.com/mechmind/apns-go"
+	"github.com/Kwik-messenger/apns-go"
 )
 
 const (
