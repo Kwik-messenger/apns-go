@@ -9,17 +9,17 @@ import (
 )
 
 const (
-	// How many times try to connect to APNS (prevents denial on dns failures)
+	// How many times try to connect to APNS (prevents denial on dns failures).
 	WORKER_RETRIES           = 3
-	// When worker fails to reconnect, wait this amount of time to try to reconnect again 
+	// Waits specified amount of time for next connection attempt.
 	WORKER_RESSURECT_TIMEOUT = 15 * time.Second
-	// Message queue length
+	// Message queue length.
 	CLIENT_QUEUE_LENGTH      = 32
-	// Worker respawn queue length
+	// Worker respawn queue length.
 	RESPAWN_QUEUE_LENGTH     = 4
-	// Default port for APNS
+	// Default port for APNS.
 	APNS_DEFAULT_PORT        = 2195
-	// Default port for feedback service
+	// Default port for feedback service.
 	FEEDBACK_DEFAULT_PORT    = 2196
 )
 
@@ -28,7 +28,7 @@ const (
 type BadMessageCallback func(m *Message, code uint8)
 
 // Client is an APNS client. It provides API to send messages, manages message queue,
-// orchestrates workers. It also used to instantiate feedback service client. 
+// orchestrates workers. It is also used to instantiate feedback service client. 
 type Client struct {
 	gatewayName string
 	certificate tls.Certificate
@@ -45,11 +45,11 @@ type Client struct {
 
 // CreateClient creates Client, loads tls certificate. If parameter 'anyServerCert' is set to true,
 // client will be able to connect to APNS gateway with invalid certificate. Can be used for
-// purposes.
+// testing purposes.
 //
-// After client have been created it should be started using Start() to actually send messages.
-// But even not started it still can be used - all messages will be queued and then sent. It can
-// be handy because workers on startup can take some time to connect to APNS
+// After client has been created it should be started using Start() to actually send messages.
+// But even if not having been started it still can be used - all messages will be queued and then 
+// sent. It can be handy because workers on startup can take some time to connect to APNS.
 func CreateClient(gw string, cert, certKey []byte, anyServerCert bool) (*Client, error) {
 	tlsCert, err := tls.X509KeyPair(cert, certKey)
 	if err != nil {
@@ -78,15 +78,15 @@ func CreateClient(gw string, cert, certKey []byte, anyServerCert bool) (*Client,
 
 // management api
 
-// SetCallback sets callback for handling erroneous messages. Every call executed in it own
+// SetCallback sets callback for handling erroneous messages. Every call executed in its own
 // goroutine. 
 func (c *Client) SetCallback(cb BadMessageCallback) {
 	c.callback = cb
 }
 
 // SetupFeedback setups feedback client from APNS client config. Feedback client will inherit 
-// a certificate and 'anyServerCert' option. After feedback client have been created it need to 
-// be started to actually do something.
+// a certificate and 'anyServerCert' option. After client is created it needs to 
+// be started to actually talk to feedback service.
 func (c *Client) SetupFeedback(gw string, poll time.Duration) (*FeedbackClient, error) {
 	parts := strings.Split(gw, ":")
 	hostname := parts[0]
@@ -104,7 +104,7 @@ func (c *Client) SetupFeedback(gw string, poll time.Duration) (*FeedbackClient, 
 	return newFeedbackClient(c.certificate, hostname, port, poll, c.anyServerCert), nil
 }
 
-// Start starts client, return error if connection to APNS does not succeed
+// Start starts a client, returns error if connection to APNS does not succeed.
 func (c *Client) Start(workerCount int) error {
 
 	if workerCount <= 0 {
@@ -157,17 +157,17 @@ func (c *Client) Stop() error {
 // Send enqueues message to delivery. 'to' is a hex-encoded device token, 'expiry' - expiration
 // time of message in unix-time, 'priority' - either PRIORITY_IMMEDIATE for immediate notification
 // delivery or PRIORITY_DELAYED for background delivery (it is an APNS property. It does not affect
-// clients' shedule for message), 'payload' - message payload.
+// client's schedule for message), 'payload' - message payload.
 //
 // Send will make a message and put it into delivery queue. Thus, Send will return an error only in
 // case of malformed input - invalid token, expiry, priority or payload. Send() to invalid but 
 // well-formed token will succeed but later, when actual delivery fails, BadMessageCallback will
 // be invoked.
 //
-// Client's delivery queue is limited and Send() will block if queue is full. This can happen when
-// workers are overloaded or not yet started.
+// Client's delivery queue has limited capacity  and Send() will block if queue is full. This can 
+// happen when workers are overloaded or not yet started.
 //
-// Send can accept messages before client have been started. Messages will be queued and sent after
+// Send can accept messages before client has been started. Messages will be queued and sent after
 // client startup.
 //
 // Send does not guarantee ordering of messages sent. Also keep in mind that APNS itself does not
@@ -233,13 +233,13 @@ func (c *Client) connect(name string, port int, cert tls.Certificate, anyCert bo
 	return tlsConn, nil
 }
 
-// send enqueues message
+// send enqueues message.
 func (c *Client) send(m *Message) error {
 	c.msgQueue <- m
 	return nil
 }
 
-// respawnWorker waits for dead worker then reconnects to APNS and restarts worker
+// respawnWorker waits for dead worker then reconnects to APNS and restarts worker.
 func (c *Client) respawnWorkers() {
 	var finishedWorkers int
 	for {
@@ -298,7 +298,7 @@ func (c *Client) respawnWorkers() {
 	}
 }
 
-// deadWorker is a struct to hold worker and error worker die with
+// deadWorker is a struct to hold worker and error worker die with.
 type deadWorker struct {
 	w   *worker
 	err error

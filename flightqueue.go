@@ -1,11 +1,11 @@
 package apns
 
 const (
-	// Multiplier for message flight queue
+	// Multiplier for message flight queue growth
 	MESSAGE_FLIGHT_QUEUE_ENLARGE = 0.33
 )
 
-// messageFlightQueue basically a ring buffer that can grow.
+// messageFlightQueue basically a ring buffer that can grow;
 // head is an index of next element to read;
 // tail is an index of next element to write;
 // when head == tail then queue is empty;
@@ -17,12 +17,12 @@ type messageFlightQueue struct {
 	lastm *Message
 }
 
-// newMessageQueue initializes queue
+// newMessageQueue initializes queue.
 func newMessageFlightQueue(size int) *messageFlightQueue {
 	return &messageFlightQueue{make([]*Message, size), 0, 0, nil}
 }
 
-// Push pushes message into tail of queue
+// Push pushes message into tail of queue.
 func (mq *messageFlightQueue) Push(m *Message) {
 	newTail := (mq.tail + 1) % len(mq.buf)
 	if newTail == mq.head {
@@ -34,7 +34,7 @@ func (mq *messageFlightQueue) Push(m *Message) {
 	mq.tail = newTail
 }
 
-// Pop pops from head of queue. 'ok' will be false when queue is empty
+// Pop pops from head of queue. 'ok' will be false when queue is empty.
 func (mq *messageFlightQueue) Pop() (m *Message, ok bool) {
 	if mq.head == mq.tail {
 		// queue is empty
@@ -47,7 +47,7 @@ func (mq *messageFlightQueue) Pop() (m *Message, ok bool) {
 	return m, true
 }
 
-// Pushback reverses Pop. Only one last message can be unpopped
+// Pushback reverses Pop. Only one last message can be pushed back.
 func (mq *messageFlightQueue) Pushback() error {
 	if mq.lastm != nil {
 		newHead := (mq.head - 1 + len(mq.buf)) % len(mq.buf)
@@ -66,7 +66,7 @@ func (mq *messageFlightQueue) Pushback() error {
 	}
 }
 
-// Len returns current count of messages in buffer
+// Len returns current count of messages in buffer.
 func (mq *messageFlightQueue) Len() int {
 	return (mq.tail - mq.head + len(mq.buf)) % len(mq.buf)
 }

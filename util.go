@@ -6,10 +6,10 @@ import (
 )
 
 
-// payload is a handy alias for keeping payload
+// payload is a handy alias for keeping payload.
 type payload map[string]interface{}
 
-// marshalPayload checks payload and marshals it into json
+// marshalPayload checks payload and marshals it into json.
 func marshalPayload(p payload) ([]byte, error) {
 	_, ok := p["aps"]
 	if !ok {
@@ -42,10 +42,10 @@ func unpackToken(token string) ([]byte, error) {
 	return data, nil
 }
 
-// writerFunc is a wrapper, creates io.Writer from function
+// writerFunc is a wrapper, creates io.Writer from function.
 type writerFunc func([]byte) (int, error)
 
-// Write is a proxy method for writerFunc
+// Write is a proxy method for writerFunc.
 func (w writerFunc) Write(data []byte) (int, error) {
 	return w(data)
 }

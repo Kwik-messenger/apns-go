@@ -12,8 +12,8 @@ import (
 )
 
 
-// FeedbackClient is a client for APNS Feedback service. It provides API to periodically retrieve
-// no more valid device tokens.
+// FeedbackClient is a client for APNS Feedback service. It provides API to retrieve
+// device tokens that are no longer valid.
 type FeedbackClient struct {
 	cert tls.Certificate
 	hostname string
@@ -26,7 +26,7 @@ type FeedbackClient struct {
 	stop chan struct{}
 }
 
-// BadToken represents entry recieved from feedback service. It contains token and expiration date
+// BadToken represents entry recieved from feedback service. It contains token and expiration date.
 type BadToken struct {
 	// Hex-encoded device token
 	Token string
@@ -34,20 +34,20 @@ type BadToken struct {
 	Timestamp time.Time
 }
 
-// badTokensReply is an internal struct for passing feedback service results through channel
+// badTokensReply is an internal struct for passing feedback service results through channel.
 type badTokensReply struct {
 	tokens []BadToken
 	err error
 }
 
-// newFeedbackClient creates feedback client with given certificate, address and poll interval
+// newFeedbackClient creates feedback client with given certificate, address and poll interval.
 func newFeedbackClient(cert tls.Certificate, hostname string, port int, poll time.Duration,
 	anyCert bool) *FeedbackClient {
 	return &FeedbackClient{cert, hostname, port, anyCert, time.NewTicker(poll),
 		make(chan badTokensReply), make(chan struct{})}
 }
 
-// Start client. Will return error if cant resolve feedback service name
+// Start starts a client. Will return error if cant resolve feedback service name.
 func (fc *FeedbackClient) Start() error {
 	_, err := net.ResolveIPAddr("ip4", fc.hostname)
 	if err != nil {
@@ -58,14 +58,14 @@ func (fc *FeedbackClient) Start() error {
 	return nil
 }
 
-// Stop client.
+// Stop stops the client.
 func (fc *FeedbackClient) Stop() {
 	fc.ticker.Stop()
 	close(fc.stop)
 }
 
-// GetBadTokens return bad tokens, retrieved from feedback service. It will block until feedback
-// service sends some tokens or error occur.
+// GetBadTokens returns bad tokens retrieved from feedback service. It will block until feedback
+// service sends some tokens or an error occurs.
 func (fc *FeedbackClient) GetBadTokens() ([]BadToken, error) {
 	reply, ok := <-fc.tokens
 	if !ok {

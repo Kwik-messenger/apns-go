@@ -7,13 +7,13 @@ import (
 )
 
 const (
-	// Tell APNS to deliver message without delay
+	// Tell APNS to deliver message without delay.
 	PRIORITY_IMMEDIATE = 10
-	// Tell APNS to deliver message in background
+	// Tell APNS to deliver message in background.
 	PRIORITY_DELAYED   = 5
 )
 
-// There are constants for APNS protocol frames
+// There are constants for APNS protocol frames.
 const (
 	FRAME_TOKEN_LENGTH           uint16 = 32
 	FRAME_NOTIFICATION_ID_LENGTH uint16 = 4
@@ -44,7 +44,7 @@ var APNSErrors = map[uint8]string{
 	255: "Unknown",
 }
 
-// Message represents ready-to-go-to-wire message.
+// Message represents a ready-to-go-to-wire message.
 type Message struct {
 	Token     []byte
 	MessageID uint32
@@ -55,12 +55,12 @@ type Message struct {
 	sentAt time.Time
 }
 
-// newMessage allocates message
+// newMessage allocates message.
 func newMessage(token []byte, expiry int32, priority uint8, p []byte) *Message {
 	return &Message{token, 0, expiry, priority, p, time.Time{}}
 }
 
-// WriteTo implements io.WriterTo
+// WriteTo implements io.WriterTo.
 func (m *Message) WriteTo(to io.Writer) (n int64, err error) {
 	// this helper will count written bytes and record in 'n'
 	counter := writerFunc(func(data []byte) (int, error) {

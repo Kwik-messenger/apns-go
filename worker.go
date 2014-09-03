@@ -10,12 +10,12 @@ import (
 
 const (
 	// Timeout for messages to be 'assumed delivered' to APNS. After message being written into
-	// APNS connection worker will put it into inflight queue. If no errors was recieved from APNS 
+	// APNS connection, worker will put it into inflight queue. If no errors was recieved from APNS 
 	// during that amount of time, message assumed delivered to APNS. 
 	WORKER_ASSUME_SENT_TIMEOUT = time.Second * 5
-	// Initial buffer size for inflight messages
+	// Initial buffer size for inflight messages.
 	WORKER_INFLIGHT_QUEUE_SIZE = 128
-	// Check inflight queue that often
+	// Period to check inflight queue.
 	WORKER_QUEUE_UPDATE_FREQ   = time.Millisecond * 500
 
 	// Long-living connections to APNS tend to stale and stop working but server does not close 
@@ -139,7 +139,7 @@ func (w *worker) Run(c net.Conn) {
 	}
 }
 
-// send writes message into connection
+// send writes message into connection.
 func (w *worker) send(msg *Message, c net.Conn) error {
 	defer w.buf.Reset()
 	// give it an ID and add to FlightQueue
@@ -167,7 +167,7 @@ func (w *worker) send(msg *Message, c net.Conn) error {
 	return nil
 }
 
-// PopMessage returns next 'infligh' message, stored in worker queue
+// PopMessage returns next 'infligh' message, stored in worker queue.
 func (w *worker) PopMessage() (*Message, bool) {
 	return w.inflight.Pop()
 }
@@ -178,7 +178,7 @@ func (w *worker) ForceStop() {
 	w.stopChan <-struct{}{}
 }
 
-// runErrorReader polls for error response from APNS
+// runErrorReader polls for error response from APNS.
 func (w *worker) runErrorReader(conn net.Conn, errors chan error) {
 	var buf = make([]byte, 2)
 
@@ -206,19 +206,19 @@ func (w *worker) runErrorReader(conn net.Conn, errors chan error) {
 	errors <- messageDeliveryError{errorCode, messageId, nil}
 }
 
-// die sends worker with error to client
+// die sends worker with error to client.
 func (w *worker) die(err error) {
 	w.toRespawn <- deadWorker{w, err}
 }
 
-// messageDeliveryError is a custom error type for handling delivery errors
+// messageDeliveryError is a custom error type for handling delivery errors.
 type messageDeliveryError struct {
 	code      uint8
 	messageId uint32
 	message   *Message
 }
 
-// Error implements error interface
+// Error implements error interface.
 func (m messageDeliveryError) Error() string {
 	return fmt.Sprintf("failed to deliver messages after %d: %s", m.messageId, APNSErrors[m.code])
 }
