@@ -112,9 +112,9 @@ func (w *worker) Run(c net.Conn) {
 				// message failed to be delivered
 				// skip up to last accepted message
 				msgerr := err.(messageDeliveryError)
-				if msgerr.messageId != 0 {
+				if msgerr.messageID != 0 {
 					for m, ok := w.inflight.Pop(); ok; m, ok = w.inflight.Pop() {
-						if m.MessageID == msgerr.messageId {
+						if m.MessageID == msgerr.messageID {
 							msgerr.message = m
 							break
 						}
@@ -195,14 +195,14 @@ func (w *worker) runErrorReader(conn net.Conn, errors chan error) {
 	}
 
 	errorCode := uint8(buf[1])
-	var messageId uint32
-	err = binary.Read(conn, binary.BigEndian, &messageId)
+	var messageID uint32
+	err = binary.Read(conn, binary.BigEndian, &messageID)
 	if err != nil {
 		errors <- err
 		return
 	}
 
-	errors <- messageDeliveryError{errorCode, messageId, nil}
+	errors <- messageDeliveryError{errorCode, messageID, nil}
 }
 
 // die sends worker with error to client.
@@ -213,11 +213,11 @@ func (w *worker) die(err error) {
 // messageDeliveryError is a custom error type for handling delivery errors.
 type messageDeliveryError struct {
 	code      uint8
-	messageId uint32
+	messageID uint32
 	message   *Message
 }
 
 // Error implements error interface.
 func (m messageDeliveryError) Error() string {
-	return fmt.Sprintf("failed to deliver messages after %d: %s", m.messageId, APNSErrors[m.code])
+	return fmt.Sprintf("failed to deliver messages after %d: %s", m.messageID, APNSErrors[m.code])
 }
