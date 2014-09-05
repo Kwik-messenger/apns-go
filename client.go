@@ -154,7 +154,7 @@ func (c *Client) Stop() error {
 // client api
 
 // Send enqueues message to delivery. 'to' is a hex-encoded device token, 'expiry' - expiration
-// time of message in unix-time, 'priority' - either PRIORITY_IMMEDIATE for immediate notification
+// time of message, 'priority' - either PRIORITY_IMMEDIATE for immediate notification
 // delivery or PRIORITY_DELAYED for background delivery (it is an APNS property. It does not affect
 // client's schedule for message), 'payload' - message payload.
 //
@@ -172,7 +172,7 @@ func (c *Client) Stop() error {
 // Send does not guarantee ordering of messages sent. Also keep in mind that APNS itself does not
 // guarantee message delivery. However, every sent message either will be 'assumed delivered' to
 // APNS or callback will be called.
-func (c *Client) Send(to string, expiry int32, priority uint8,
+func (c *Client) Send(to string, expiry time.Time, priority uint8,
 	payload map[string]interface{}) error {
 
 	// validate all input and form new message
@@ -190,7 +190,8 @@ func (c *Client) Send(to string, expiry int32, priority uint8,
 		return ErrInvalidPriority
 	}
 
-	Message := newMessage(token, expiry, priority, data)
+	epochExpiry := int32(expiry.Unix())
+	Message := newMessage(token, epochExpiry, priority, data)
 	return c.send(Message)
 }
 
