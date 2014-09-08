@@ -6,6 +6,8 @@ apns-go: Client for Apple Push Notification and Feedback services
 Package apns-go provides client for interacting with APNS and corresponding
 Feedback service. 
 
+Part of the [Kwik-messenger](https://github.com/Kwik-messenger/) project.
+
 Example:
 
 ```go
@@ -85,5 +87,5 @@ apns.WORKER_ASSUME_SENT_TIMEOUT to finish.
 
 * Connections to APNS tend to stale and hang up. To work around this issue
 workers now being respawned after apns.WORKER_IDLE_TIMEOUT. If you still
-experience silent delivery fails when traffic is low, consider to lower this
+experience silent delivery fails when traffic is low, consider lowering this
 timeout.
